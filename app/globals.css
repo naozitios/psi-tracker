@@ -1,0 +1,182 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --surface: rgb(255 255 255 / 0.06);
+  --surface-raised: #1a1512;
+  --hairline: rgb(255 255 255 / 0.1);
+  --text: #f3f1ec;
+  --text-muted: #a0a0a0;
+  --text-faint: #8c867f;
+  --accent: #4a5af6;
+  --accent-hover: #6170ff;
+  --copper: #a86024;
+  --copper-light: #e0a466;
+
+  --band-good: #30d158;
+  --band-moderate: #ffd60a;
+  --band-unhealthy: #ff9f0a;
+  --band-very-unhealthy: #ff453a;
+  --band-hazardous: #bf5af2;
+  --band-none: #8c867f;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-hairline: var(--hairline);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-copper-light: var(--copper-light);
+  --color-band: var(--band);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, var(--font-geist), system-ui, sans-serif;
+  --font-display: var(--font-cormorant), 'Iowan Old Style', 'Times New Roman', serif;
+}
+
+[data-band] {
+  --band: var(--band-none);
+}
+[data-band='good'] {
+  --band: var(--band-good);
+}
+[data-band='moderate'] {
+  --band: var(--band-moderate);
+}
+[data-band='unhealthy'] {
+  --band: var(--band-unhealthy);
+}
+[data-band='very-unhealthy'] {
+  --band: var(--band-very-unhealthy);
+}
+[data-band='hazardous'] {
+  --band: var(--band-hazardous);
+}
+
+html {
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.eyebrow {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.display-number {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-variant-numeric: lining-nums tabular-nums;
+  line-height: 0.82;
+  letter-spacing: -0.02em;
+}
+
+/* Copper louvres around the reading, after the brand reference's hero. */
+.turbine {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: clamp(40rem, 150vw, 76rem);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  pointer-events: none;
+  opacity: 0.62;
+  background: conic-gradient(
+    from 30deg,
+    #120a05,
+    #e0a466 9%,
+    #6b3a15 18%,
+    #0d0805 32%,
+    #a86024 47%,
+    #2a170a 58%,
+    #d7955a 74%,
+    #3b200d 84%,
+    #120a05
+  );
+  mask-image:
+    repeating-conic-gradient(#000 0deg 1.5deg, transparent 1.5deg 4deg),
+    radial-gradient(closest-side, transparent 55%, #000 66%, #000 88%, transparent 100%);
+  mask-composite: intersect;
+  animation: turbine-spin 240s linear infinite;
+}
+
+.band-glow {
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--band) 18%, transparent),
+    transparent
+  );
+  transition: background 600ms ease;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgb(255 255 255 / 0.05),
+    rgb(255 255 255 / 0.11),
+    rgb(255 255 255 / 0.05)
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.rise {
+  animation: rise 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes turbine-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turbine,
+  .skeleton,
+  .rise {
+    animation: none;
+  }
+}
