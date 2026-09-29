@@ -44,7 +44,6 @@ export function PsiApp() {
           <LocationNote
             status={choice.locationStatus}
             source={choice.source}
-            regionName={regionName}
             onLocate={choice.locate}
           />
           <p aria-live="polite" className="sr-only">

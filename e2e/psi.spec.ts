@@ -43,6 +43,21 @@ const ok = (body = snapshot()) => ({ status: 200, body });
 const panel = (page: Page) => page.getByRole('tabpanel');
 const regionHeading = (page: Page) => panel(page).getByRole('heading', { level: 2 });
 
+// Page-relative top edges of the label and big number; page-relative so clicking below the fold,
+// which scrolls, isn't mistaken for a layout shift.
+async function readingPosition(page: Page) {
+  const main = page.getByRole('main');
+  await expect(main.locator('.display-number')).toBeVisible();
+  return main.evaluate((element) => {
+    const top = (node: Element | null | undefined) =>
+      node ? node.getBoundingClientRect().top + window.scrollY : null;
+    const label = [...element.querySelectorAll('.eyebrow')].find(
+      (node) => node.textContent === '24-hour PSI',
+    );
+    return { label: top(label), reading: top(element.querySelector('.display-number')) };
+  });
+}
+
 test.describe('with location allowed', () => {
   test.use({ permissions: ['geolocation'], geolocation: PLACES.changiAirport });
 
@@ -81,6 +96,21 @@ test.describe('with location allowed', () => {
     await expect(regionHeading(page)).toHaveText('South');
   });
 
+  test('keeps the reading still when switching regions or relocating', async ({ page }) => {
+    await mockApi(page, ok());
+    await page.goto('/');
+    await expect(regionHeading(page)).toHaveText('East');
+    const before = await readingPosition(page);
+
+    await page.getByRole('tab', { name: /^North/ }).click();
+    await expect(page.getByRole('button', { name: 'Use my location' })).toBeVisible();
+    expect(await readingPosition(page)).toEqual(before);
+
+    await page.getByRole('button', { name: 'Use my location' }).click();
+    await expect(regionHeading(page)).toHaveText('East');
+    expect(await readingPosition(page)).toEqual(before);
+  });
+
   test('labels fallback data as possibly outdated', async ({ page }) => {
     await mockApi(page, ok(snapshot({ stale: true })));
     await page.goto('/');
@@ -105,11 +135,38 @@ test.describe('with location blocked', () => {
     await page.goto('/');
 
     await expect(regionHeading(page)).toHaveText('Central');
-    await expect(page.getByText(/Location access is off, so this shows Central/)).toBeVisible();
+    await expect(page.getByText('Location is off. Pick your area below.')).toBeVisible();
     await expect(page.getByRole('tab', { name: /^Central/ })).toHaveAttribute(
       'aria-selected',
       'true',
     );
+  });
+
+  test('keeps the reading still when the location note goes away', async ({ page }) => {
+    await mockApi(page, ok());
+    await page.goto('/');
+    await expect(page.getByText('Location is off. Pick your area below.')).toBeVisible();
+    const before = await readingPosition(page);
+
+    await page.getByRole('tab', { name: /^East/ }).click();
+    await expect(page.getByText('Location is off. Pick your area below.')).toBeHidden();
+    expect(await readingPosition(page)).toEqual(before);
+  });
+
+  test('lines the loading placeholder up with the reading that replaces it', async ({ page }) => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/api/psi', async (route) => {
+      await gate;
+      await route.fulfill({ json: snapshot() });
+    });
+    await page.goto('/');
+    await expect(page.getByText('Loading the latest PSI readings')).toBeAttached();
+    const loading = await readingPosition(page);
+
+    release();
+    await expect(regionHeading(page)).toHaveText('Central');
+    expect(await readingPosition(page)).toEqual(loading);
   });
 
   test('supports keyboard navigation between regions', async ({ page }) => {

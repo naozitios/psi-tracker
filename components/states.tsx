@@ -1,18 +1,44 @@
 import { NEA_HAZE_URL } from '@/lib/constants';
 import { REGION_IDS } from '@/lib/psi/types';
 
+import {
+  BAND_PILL,
+  EYEBROW,
+  HERO_STACK,
+  META,
+  NOTE_ROW,
+  READING,
+  REGION_NAME,
+  TAG_ROW,
+} from './headline-layout';
 import { ArrowUpRight } from './icons';
+
+// Real text, made invisible, gives each placeholder the exact size of what replaces it.
+const PLACEHOLDER = 'skeleton text-transparent select-none';
 
 export function LoadingHero() {
   return (
-    <div className="flex flex-col items-center">
-      <span className="sr-only">Loading the latest PSI readings</span>
-      <p className="eyebrow flex min-h-7 items-center">24-hour PSI</p>
-      <div className="skeleton mt-5 h-[clamp(2.75rem,12vw,4.75rem)] w-56 rounded-lg" />
-      <div className="skeleton mt-5 h-[clamp(7rem,33vw,11rem)] w-44 rounded-2xl" />
-      <div className="skeleton mt-7 h-8 w-28 rounded-full" />
-      <div className="skeleton mt-6 h-5 w-64 rounded-md" />
-    </div>
+    <>
+      <div className={HERO_STACK}>
+        <span className="sr-only">Loading the latest PSI readings</span>
+        <p className={TAG_ROW} />
+        <p className={EYEBROW}>24-hour PSI</p>
+        <div aria-hidden="true" className="flex flex-col items-center">
+          <div className={`${REGION_NAME} ${PLACEHOLDER} rounded-lg`}>Central</div>
+          <div className={`${READING} ${PLACEHOLDER} rounded-2xl`}>88</div>
+          <div className={`${BAND_PILL} ${PLACEHOLDER}`}>Moderate</div>
+        </div>
+        <div aria-hidden="true" className={META}>
+          <p>
+            <span className={`${PLACEHOLDER} rounded-md`}>PM2.5 00 µg/m³ in the past hour</span>
+          </p>
+          <p>
+            <span className={`${PLACEHOLDER} rounded-md`}>Updated 00:00 pm</span>
+          </p>
+        </div>
+      </div>
+      <div className={NOTE_ROW} />
+    </>
   );
 }
 

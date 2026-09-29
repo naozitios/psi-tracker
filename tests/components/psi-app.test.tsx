@@ -114,7 +114,7 @@ describe('PsiApp', () => {
     await geo.reject(1);
 
     expect(regionHeading()).toHaveTextContent('Central');
-    expect(screen.getByText(/Location access is off, so this shows Central/)).toBeInTheDocument();
+    expect(screen.getByText('Location is off. Pick your area below.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Use my location' })).not.toBeInTheDocument();
     expect(screen.queryByText('Your location')).not.toBeInTheDocument();
   });
@@ -124,7 +124,8 @@ describe('PsiApp', () => {
     await renderLoaded();
     await geo.reject(3);
 
-    expect(screen.getByText(/took too long, so this shows Central/)).toBeInTheDocument();
+    expect(regionHeading()).toHaveTextContent('Central');
+    expect(screen.getByText('Location timed out.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Use my location' }));
     expect(geo.getCurrentPosition).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Locating…')).toBeInTheDocument();
@@ -139,7 +140,7 @@ describe('PsiApp', () => {
     await geo.resolve(PLACES.kualaLumpur);
 
     expect(regionHeading()).toHaveTextContent('Central');
-    expect(screen.getByText(/outside Singapore, so this shows Central/)).toBeInTheDocument();
+    expect(screen.getByText('You seem to be outside Singapore.')).toBeInTheDocument();
   });
 
   it('explains when the browser cannot share location', async () => {
@@ -147,9 +148,8 @@ describe('PsiApp', () => {
     mockApi(makeSnapshot());
     await renderLoaded();
 
-    expect(
-      screen.getByText(/can't share your location, so this shows Central/),
-    ).toBeInTheDocument();
+    expect(regionHeading()).toHaveTextContent('Central');
+    expect(screen.getByText("This browser can't share location.")).toBeInTheDocument();
   });
 
   it('swaps regions instantly from data already loaded', async () => {
@@ -228,7 +228,25 @@ describe('PsiApp', () => {
     expect(regionHeading()).toHaveTextContent('South');
 
     await geo.reject(1);
-    expect(screen.getByText(/so this shows South/)).toBeInTheDocument();
+    expect(regionHeading()).toHaveTextContent('South');
+    expect(screen.getByText('Location is off. Pick your area below.')).toBeInTheDocument();
+  });
+
+  it('hides the location note once the user picks a region', async () => {
+    mockApi(makeSnapshot());
+    await renderLoaded();
+    await geo.reject(1);
+
+    await userEvent.click(tab('East'));
+    expect(screen.queryByText('Location is off. Pick your area below.')).not.toBeInTheDocument();
+  });
+
+  it('shows the outdated label on the updated line', async () => {
+    mockApi(makeSnapshot({ stale: true }));
+    await renderLoaded();
+    expect(screen.getByText('May be outdated').parentElement).toHaveTextContent(
+      /^Updated \d{1,2}:\d{2} (am|pm) · May be outdated$/,
+    );
   });
 
   it('prefers the current location over a remembered region', async () => {
