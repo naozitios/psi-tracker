@@ -103,7 +103,7 @@ export function findAnnualPeriods(facts: CompanyFacts, maxYears = 5): Period[] {
   }));
 }
 
-function matchesPeriod(entry: FactEntry, def: LineDef, period: Period): boolean {
+export function matchesPeriod(entry: FactEntry, def: LineDef, period: Period): boolean {
   if (!isAnnualReport(entry.form)) return false;
   if (def.periodType === "duration") {
     return (

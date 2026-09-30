@@ -1,56 +1,96 @@
 # ModelSheet
 
-An AI spreadsheet for self-directed investors. Type a ticker and get a five-year, three-statement model built from the company's SEC 10-K filings. Every historical number links to the filing it came from. You can edit the model in plain English, and each change shows up as a diff you accept or reject. Export to Excel keeps the formulas live.
+An AI spreadsheet for self-directed investors. Type a ticker and get a company model built from its SEC filings:
+- five years of income statement, balance sheet and cash flow
+- a five-year forecast
+- a DCF valuation
+- the most recent quarters
 
-This is the first slice of the *MVP PRD: Subset-Style AI Financial Research Platform*. It covers the five Must-have features:
+Every historical number links to the filing it came from. You can edit the model in plain English, and each change shows up as a diff you accept or reject. Export to Excel keeps the formulas live.
 
-| PRD feature | Where it lives |
-|---|---|
-| 1. Ticker-to-model (F1, F2) | `lib/sec/tickers.ts`, `lib/sec/extract.ts`, `lib/model/build.ts` |
-| 2. Spreadsheet canvas with a formula engine (F3) | `lib/sheet/engine.ts`, `components/SheetGrid.tsx` |
-| 3. AI chat agent, edits as diffs (F5) | `lib/agent/agent.ts`, `app/api/agent/route.ts`, `components/ChatPanel.tsx` |
-| 4. Source tracing (F6) | `FilingSource` on each input cell, `components/CellInspector.tsx` |
-| 5. Excel export (F7) | `lib/export/xlsx.ts`, `app/api/export/route.ts` |
-| Integrity checks (F4) | `lib/model/checks.ts`, run after every edit; failing checks block export |
+This implements the *MVP PRD: Subset-Style AI Financial Research Platform*.
+
+| PRD item | Status | Where |
+|---|---|---|
+| 1. Ticker-to-model (5 years plus recent quarters) | Done | `lib/sec/`, `lib/model/build.ts`, `lib/model/quarterly.ts` |
+| 2. Spreadsheet canvas with formula engine | Done | `lib/sheet/engine.ts`, `components/SheetGrid.tsx` |
+| 3. AI chat agent, edits as diffs | Done | `lib/agent/`, `app/api/models/[id]/agent` |
+| 4. Source tracing | Done | `FilingSource` on each input, `components/CellInspector.tsx` |
+| 5. Excel export | Done | `lib/export/xlsx.ts` |
+| 6. DCF template (Should) | Done | `lib/model/dcf.ts` |
+| 7. Roll-forward (Should) | Not yet | |
+| F4 integrity checks | Done, block export on failure | `lib/model/checks.ts` |
 
 ## Running it
 
 ```bash
-cp .env.example .env.local   # set SEC_USER_AGENT and ANTHROPIC_API_KEY
+cp .env.example .env.local   # set SEC_USER_AGENT; ANTHROPIC_API_KEY for the assistant
 npm install
 npm run dev                  # http://localhost:3000
 ```
 
-`SEC_USER_AGENT` is required because SEC's [fair-access policy](https://www.sec.gov/os/accessing-edgar-data) asks every client to identify itself with a name and contact email. The chat agent uses `claude-opus-5-5` by default. Set `ANTHROPIC_MODEL` to use a different model.
+Local development needs no database server: without `DATABASE_URL` the app runs an in-process Postgres ([PGlite](https://pglite.dev)) stored in `.data/`.
+
+In production, set these three:
+- `DATABASE_URL`: any Postgres 14+.
+- `SESSION_SECRET`: 32+ random characters.
+- `SEC_USER_AGENT`: SEC's [fair-access policy](https://www.sec.gov/os/accessing-edgar-data) requires a name and contact email.
+
+The server refuses to start without them. Migrations run automatically on first request.
 
 ```bash
-npm test          # unit tests (no network needed)
+npm test               # unit and API tests; no network, no API credits
 npm run typecheck
 npm run build
+npm run metrics        # PRD success metrics from the events table
+npm run eval:accuracy  # 50-company extraction test on live SEC data (free, needs network)
+npm run eval:agent     # scripted assistant test (SPENDS API CREDITS, ~10 requests)
 ```
 
-## How a model is built
+## Costs
 
-1. **Resolve the company.** Tickers and names are matched against SEC's `company_tickers.json`. The company's submissions list supplies the 10-K filings shown for confirmation. Banks and insurers are turned away because they need different templates (a PRD non-goal).
-2. **Extract.** The app reads SEC's XBRL `companyfacts` API. It picks the five most recent fiscal years from full-year 10-K facts, ignoring quarterly data. It then maps each line item to a standard template (`lib/sec/template.ts`) using a priority list of `us-gaap` concepts. When several filings report the same period, the most recently filed value wins, so restatements replace the original figures.
-3. **Build.** Reported totals are hardcoded inputs, each with its source. Lines such as "Other current assets" are formulas that reconcile to those totals, so the model always matches what the company reported. A required value that is missing is left blank and flagged, never estimated.
-4. **Project.** The income statement has five projected years. Every projected cell is a formula driven by the *Drivers* block (revenue growth, margins, cost ratios, tax rate). Each driver starts at the average of the last three actual years.
+Only the chat assistant costs money. It calls the Claude API, billed per token to the Anthropic Console account of `ANTHROPIC_API_KEY` (not a Claude.ai plan).
+- **Per request:** the workbook sent to the model is about 8k tokens, so a request costs a few cents on the default `claude-opus-5-5`. Set `ANTHROPIC_MODEL=claude-sonnet-5-5` to roughly halve that. The prompt is hard-capped at about 25k tokens.
+- **Per user:** 20 assistant requests an hour and 60 a day.
+- **Whole app:** 500 a day, which bounds daily spend. All three limits can be changed with `AGENT_LIMIT_*`.
+- **Everything else is free:** building models, checks, export and SEC data.
 
-## How the agent edits
+## How it works
 
-The server sends Claude the workbook as text: each cell's formula, its value and where it came from. The server gives Claude one tool, `propose_edits` (strict schema), and applies nothing itself. Instead it validates the proposed edits, recalculates a copy of the workbook, and reruns the checks. The browser then shows the result as a preview: edited cells are outlined and recalculated cells are shaded. Accepted changes go into a change log with undo.
+**Building a model.**
+1. The company is resolved from SEC's ticker list and its filings index. Banks and insurers are turned away (a PRD non-goal).
+2. Figures come from SEC's XBRL `companyfacts`, using full-year 10-K facts for annual periods and 10-Q facts for quarters.
+3. Each line item maps to a priority list of `us-gaap` concepts (`lib/sec/template.ts`), and only concepts that mean the whole line. When several filings report a period, the latest filing wins, so restatements are used.
 
-The system prompt forbids inventing historical figures ("say you can't find it rather than guess"). It also steers forecast changes into the driver cells so the model stays formula-driven.
+**What's hardcoded and what's a formula.**
+- **Inputs:** reported totals are hardcoded, each with its source.
+- **"Other" lines:** these are formulas that reconcile to the reported totals.
+- **Fourth quarters:** full year minus Q1–Q3.
+- **Quarterly cash flow:** differences of the 10-Q year-to-date figures.
+- **Missing values:** these are left blank and flagged, never estimated. A missing figure that the forecast depends on blocks export.
+
+**The server owns every model.** Browsers send single-cell edits, never whole workbooks. Each edit is validated, versioned (a stale version gets a 409) and logged, so it can be undone.
+
+**The assistant.** It gets the saved workbook as text and a strict `propose_edits` tool. Its suggestions are stored as proposals with a recalculated preview, and nothing changes until the user accepts. Its instructions forbid inventing historical figures and steer forecast changes into the driver cells.
+
+**Sessions.** Anyone can build a model before signing in (a PRD open question). A signed, httpOnly guest cookie ties models, limits and metrics to a user.
+
+**Shared state.** Rate limits and the SEC response cache live in Postgres, so they hold across server instances. SEC's 10 requests/second budget is counted there too.
 
 ## Formula engine
 
-Formulas are evaluated by [fast-formula-parser](https://github.com/LesterLyu/fast-formula-parser) (MIT), in dependency order, with circular-reference detection. `MAX`, `MIN` and `NPV` are missing from that library and are supplied in `lib/sheet/engine.ts`. HyperFormula was ruled out because its licence is GPLv3 or commercial, and the PRD asks for a licence that allows commercial use.
+Formulas are evaluated by [fast-formula-parser](https://github.com/LesterLyu/fast-formula-parser) (MIT), in dependency order, with circular-reference detection. `MAX`, `MIN` and `NPV` are added in `lib/sheet/engine.ts`. HyperFormula was ruled out because it is GPLv3 or commercial, and the PRD asks for a licence that allows commercial use.
 
-## Not in this slice yet
+## Not done yet
 
-- Persistence and share links (models live in the browser tab; refreshing loses them)
-- Recent quarters, balance sheet and cash flow projections, the DCF template, and roll-forward (PRD Should-haves)
-- Inserting rows between existing rows (the agent appends rows at the bottom instead)
-- Sign-in and the 50-company accuracy test set
+- **Accuracy gate:** `npm run eval:accuracy` has not been run, because the sandbox this was built in cannot reach SEC. Run it before a beta; the PRD gate is 98%.
+- **Assistant eval:** `npm run eval:agent` has not been run (it spends API credits). Its graders are unit-tested.
+- **Sign-in:** there are guest sessions only, so clearing cookies loses access to your models. Email sign-in that claims a guest session is the next step.
+- **Other gaps:**
+  - roll-forward
+  - share links
+  - inserting rows between existing rows (the assistant appends at the bottom)
+  - error monitoring
+  - terms and privacy pages
 
 Not investment advice.

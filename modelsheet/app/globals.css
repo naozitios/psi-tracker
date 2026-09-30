@@ -163,6 +163,7 @@ input, textarea {
 .msg-assistant { align-self: flex-start; background: var(--header-bg); }
 .msg-note { align-self: center; color: var(--muted); font-size: 12px; }
 .examples { padding-left: 16px; }
+.examples button { text-align: left; }
 .proposal { border: 1px solid var(--edited); border-radius: 8px; padding: 10px; }
 .edits { list-style: none; padding: 0; margin: 6px 0; font-size: 12px; max-height: 120px; overflow: auto; }
 .edits li { padding: 2px 0; }

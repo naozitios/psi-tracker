@@ -8,7 +8,10 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval:agent": "RUN_AGENT_EVALS=1 vitest run --config vitest.evals.config.mts evals/agent.eval.ts",
+    "eval:accuracy": "RUN_ACCURACY_EVAL=1 vitest run --config vitest.evals.config.mts evals/accuracy.eval.ts",
+    "metrics": "node scripts/metrics.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
