@@ -103,6 +103,7 @@ describe("runChecks", () => {
       ["cash", "pass"],
       ["signs", "pass"],
       ["errors", "pass"],
+      ["forecastInputs", "pass"],
       ["gaps", "pass"],
     ]);
     expect(exportBlockers(checks)).toEqual([]);
@@ -207,5 +208,57 @@ describe("edits", () => {
     expect(workbook.sheets[0].cells[`A${row}`].role).toBe("label");
     const v = evaluateWorkbook(workbook)[`Income!F${row}`] as number;
     expect(v).toBeCloseTo(figures(2024).netIncome / 391_000, 9);
+  });
+});
+
+describe("missing filing data", () => {
+  function buildWithout(concept: string, years?: string[]) {
+    const facts = buildCompanyFacts();
+    const gaap = facts.facts["us-gaap"];
+    if (years) {
+      for (const unit of Object.values(gaap[concept].units)) {
+        const kept = unit.filter((e) => !years.some((y) => e.end.startsWith(y)));
+        unit.splice(0, unit.length, ...kept);
+      }
+    } else {
+      delete gaap[concept];
+    }
+    const wb = buildWorkbook(extractFinancials(facts), { ticker: "X" });
+    return { wb, values: evaluateWorkbook(wb) };
+  }
+
+  it("blocks export instead of forecasting from a missing operating income", () => {
+    const { wb, values } = buildWithout("OperatingIncomeLoss");
+    const checks = Object.fromEntries(runChecks(wb, values).map((c) => [c.id, c]));
+    expect(checks.forecastInputs.status).toBe("fail");
+    expect(checks.forecastInputs.details[0]).toMatch(/^Operating income, FY2022A/);
+    expect(exportBlockers(Object.values(checks)).map((c) => c.id)).toContain("forecastInputs");
+
+    // The plug that would have absorbed the whole gap is left blank, with the formula to restore.
+    const { sheet, address } = addressOf(wb, "otherOperatingExpense", 4);
+    const cell = wb.sheets.find((s) => s.name === sheet)!.cells[address];
+    expect(cell.formula).toBeUndefined();
+    expect(cell.note).toMatch(/^Left blank: Operating income is missing for FY2024A\. .*=F6-F7-F8-F10$/);
+  });
+
+  it("only warns about a missing balance sheet total, and leaves its plug blank", () => {
+    const { wb, values } = buildWithout("AssetsCurrent", ["2021"]);
+    const checks = Object.fromEntries(runChecks(wb, values).map((c) => [c.id, c]));
+    expect(checks.gaps.status).toBe("warn");
+    expect(checks.gaps.details).toEqual(["Total current assets, FY2021A"]);
+    expect(checks.forecastInputs.status).toBe("pass");
+    expect(exportBlockers(Object.values(checks))).toEqual([]);
+    expect(valueOf(wb, values, "otherCurrentAssets", 1)).toBeUndefined();
+    expect(valueOf(wb, values, "otherCurrentAssets", 2)).toBeCloseTo(0.05 * RESTATED_FY2022_REVENUE, 6);
+  });
+
+  it("never reads a partial concept as a total", () => {
+    const facts = buildCompanyFacts();
+    const gaap = facts.facts["us-gaap"];
+    gaap.IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic =
+      gaap.IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest;
+    delete gaap.IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest;
+    const extraction = extractFinancials(facts);
+    expect(extraction.lines.pretaxIncome.every((v) => v === null)).toBe(true);
   });
 });

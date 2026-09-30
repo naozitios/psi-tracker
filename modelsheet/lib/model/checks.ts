@@ -156,6 +156,38 @@ function errorCheck(workbook: Workbook, values: Values): CheckResult {
   return summarize("errors", "No formula errors", "fail", findings, "Every formula evaluates.");
 }
 
+// Lines the forecast is seeded from. If one is missing in the seed years the
+// projections come out plausible-looking but wrong, so this blocks export
+// rather than warning.
+const FORECAST_INPUTS = ["revenue", "operatingIncome", "pretaxIncome", "netIncome", "dilutedShares"];
+const SEED_YEARS = 3;
+
+function forecastInputCheck(reader: LineReader, workbook: Workbook): CheckResult {
+  const findings: Array<{ detail: string; cells: string[] }> = [];
+  const actual = workbook.periods
+    .map((period, i) => ({ period, i }))
+    .filter(({ period }) => period.kind === "actual")
+    .slice(-SEED_YEARS);
+  for (const line of FORECAST_INPUTS) {
+    if (!workbook.lines[line]) continue;
+    for (const { period, i } of actual) {
+      if (reader.hasContent(line, i)) continue;
+      const label = LINE_DEFS.find((d) => d.key === line)?.label ?? line;
+      findings.push({
+        detail: `${label}, ${period.label}: the forecast is seeded from this year`,
+        cells: [reader.key(line, i)!],
+      });
+    }
+  }
+  return summarize(
+    "forecastInputs",
+    "Forecast inputs present",
+    "fail",
+    findings,
+    "Every figure the forecast is seeded from is present.",
+  );
+}
+
 function gapCheck(reader: LineReader, workbook: Workbook): CheckResult {
   const findings: Array<{ detail: string; cells: string[] }> = [];
   for (const def of LINE_DEFS) {
@@ -192,6 +224,7 @@ export function runChecks(workbook: Workbook, values: Values): CheckResult[] {
       ["beginningCash", "netChangeInCash", "endingCashReported"]),
     signCheck(reader, workbook),
     errorCheck(workbook, values),
+    forecastInputCheck(reader, workbook),
     gapCheck(reader, workbook),
   ];
 }

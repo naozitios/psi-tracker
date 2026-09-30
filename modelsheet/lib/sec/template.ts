@@ -5,6 +5,11 @@ import type { StatementKey } from "../sheet/types";
  * it, in priority order. Companies switch concepts over time (for example
  * SalesRevenueNet before ASC 606), so each period picks the first concept
  * that has a value for it.
+ *
+ * Every concept listed must mean the whole line. Components such as
+ * goods-only revenue or domestic-only pre-tax income are left out on
+ * purpose: a missing value is flagged, a partial one would look right and
+ * be wrong.
  */
 export interface LineDef {
   key: string;
@@ -29,17 +34,17 @@ const CASH_INCL_RESTRICTED = [
 export const LINE_DEFS: LineDef[] = [
   // Income statement
   { key: "revenue", label: "Revenue", statement: "income", periodType: "duration", unit: "USD", required: true,
-    concepts: ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet", "SalesRevenueGoodsNet"] },
+    concepts: ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet"] },
   { key: "costOfRevenue", label: "Cost of revenue", statement: "income", periodType: "duration", unit: "USD",
-    concepts: ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold", "CostOfServices"] },
+    concepts: ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold"] },
   { key: "researchAndDevelopment", label: "Research and development", statement: "income", periodType: "duration", unit: "USD",
     concepts: ["ResearchAndDevelopmentExpense", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"] },
   { key: "sellingGeneralAdmin", label: "Selling, general and administrative", statement: "income", periodType: "duration", unit: "USD",
-    concepts: ["SellingGeneralAndAdministrativeExpense", "GeneralAndAdministrativeExpense"] },
+    concepts: ["SellingGeneralAndAdministrativeExpense"] },
   { key: "operatingIncome", label: "Operating income", statement: "income", periodType: "duration", unit: "USD", required: true,
     concepts: ["OperatingIncomeLoss"] },
   { key: "pretaxIncome", label: "Pre-tax income", statement: "income", periodType: "duration", unit: "USD", required: true,
-    concepts: ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic"] },
+    concepts: ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"] },
   { key: "incomeTax", label: "Income tax expense", statement: "income", periodType: "duration", unit: "USD",
     concepts: ["IncomeTaxExpenseBenefit"] },
   { key: "netIncome", label: "Net income", statement: "income", periodType: "duration", unit: "USD", required: true,
@@ -87,7 +92,7 @@ export const LINE_DEFS: LineDef[] = [
   { key: "cfNetIncome", label: "Net income (incl. minority interest)", statement: "cashflow", periodType: "duration", unit: "USD", required: true,
     concepts: ["ProfitLoss", "NetIncomeLoss"] },
   { key: "depreciationAmortization", label: "Depreciation and amortization", statement: "cashflow", periodType: "duration", unit: "USD",
-    concepts: ["DepreciationDepletionAndAmortization", "DepreciationAmortizationAndAccretionNet", "DepreciationAndAmortization", "Depreciation"] },
+    concepts: ["DepreciationDepletionAndAmortization", "DepreciationAmortizationAndAccretionNet", "DepreciationAndAmortization"] },
   { key: "stockCompensation", label: "Stock-based compensation", statement: "cashflow", periodType: "duration", unit: "USD",
     concepts: ["ShareBasedCompensation", "AllocatedShareBasedCompensationExpense"] },
   { key: "cashFromOperations", label: "Cash from operations", statement: "cashflow", periodType: "duration", unit: "USD", required: true,

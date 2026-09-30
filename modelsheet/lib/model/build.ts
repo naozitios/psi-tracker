@@ -48,6 +48,11 @@ interface LineSpec {
   projectedIsAssumption?: boolean;
   /** Used when a filing value is missing, e.g. total liabilities. */
   fallback?: { formula: (c: ColumnContext) => string; note: string };
+  /**
+   * Filing lines a historical formula needs. If one is missing that year the
+   * cell is left blank with a note, instead of computing from a zero.
+   */
+  requires?: string[];
   format?: CellFormat;
   bold?: boolean;
 }
@@ -66,26 +71,26 @@ const INCOME_ROWS: RowSpec[] = [
     projected: (c) => `${c.ref("revenue", c.prev!)}*(1+${c.ref("revenueGrowth")})` },
   { key: "costOfRevenue", label: "Cost of revenue", actual: "filing",
     projected: (c) => `${c.ref("revenue")}*(1-${c.ref("grossMargin")})` },
-  { key: "grossProfit", label: "Gross profit", bold: true,
+  { key: "grossProfit", label: "Gross profit", bold: true, requires: ["revenue"],
     actual: (c) => `${c.ref("revenue")}-${c.ref("costOfRevenue")}`,
     projected: (c) => `${c.ref("revenue")}-${c.ref("costOfRevenue")}` },
   { key: "researchAndDevelopment", label: "Research and development", actual: "filing",
     projected: (c) => `${c.ref("revenue")}*${c.ref("rdPercent")}` },
   { key: "sellingGeneralAdmin", label: "Selling, general and administrative", actual: "filing",
     projected: (c) => `${c.ref("revenue")}*${c.ref("sgaPercent")}` },
-  { key: "otherOperatingExpense", label: "Other operating expense, net",
+  { key: "otherOperatingExpense", label: "Other operating expense, net", requires: ["revenue", "operatingIncome"],
     actual: (c) => `${c.ref("grossProfit")}-${c.ref("researchAndDevelopment")}-${c.ref("sellingGeneralAdmin")}-${c.ref("operatingIncome")}`,
     projected: (c) => `${c.ref("revenue")}*${c.ref("otherOpexPercent")}` },
   { key: "operatingIncome", label: "Operating income", actual: "filing", bold: true,
     projected: (c) => `${c.ref("grossProfit")}-${c.ref("researchAndDevelopment")}-${c.ref("sellingGeneralAdmin")}-${c.ref("otherOperatingExpense")}` },
-  { key: "nonOperatingIncome", label: "Non-operating income (expense), net",
+  { key: "nonOperatingIncome", label: "Non-operating income (expense), net", requires: ["operatingIncome", "pretaxIncome"],
     actual: (c) => `${c.ref("pretaxIncome")}-${c.ref("operatingIncome")}`,
     projected: (c) => c.ref("nonOperatingIncome", c.prev!) },
   { key: "pretaxIncome", label: "Pre-tax income", actual: "filing", bold: true,
     projected: (c) => `${c.ref("operatingIncome")}+${c.ref("nonOperatingIncome")}` },
   { key: "incomeTax", label: "Income tax expense", actual: "filing",
     projected: (c) => `${c.ref("pretaxIncome")}*${c.ref("taxRate")}` },
-  { key: "otherNetIncomeItems", label: "Other items (discontinued ops, minority interest)",
+  { key: "otherNetIncomeItems", label: "Other items (discontinued ops, minority interest)", requires: ["pretaxIncome", "netIncome"],
     actual: (c) => `${c.ref("netIncome")}-${c.ref("pretaxIncome")}+${c.ref("incomeTax")}` },
   { key: "netIncome", label: "Net income", actual: "filing", bold: true,
     projected: (c) => `${c.ref("pretaxIncome")}-${c.ref("incomeTax")}+${c.ref("otherNetIncomeItems")}` },
@@ -96,20 +101,20 @@ const INCOME_ROWS: RowSpec[] = [
     projected: (c) => `${c.ref("netIncome")}/${c.ref("dilutedShares")}` },
   "blank",
   { header: "Drivers" },
-  { key: "revenueGrowth", label: "Revenue growth", format: "percent", projectedIsAssumption: true,
+  { key: "revenueGrowth", label: "Revenue growth", format: "percent", projectedIsAssumption: true, requires: ["revenue"],
     actual: (c) => (c.prev ? `${c.ref("revenue")}/${c.ref("revenue", c.prev)}-1` : null),
     projected: seedAssumption },
-  { key: "grossMargin", label: "Gross margin", format: "percent", projectedIsAssumption: true,
+  { key: "grossMargin", label: "Gross margin", format: "percent", projectedIsAssumption: true, requires: ["revenue"],
     actual: (c) => `${c.ref("grossProfit")}/${c.ref("revenue")}`, projected: seedAssumption },
-  { key: "rdPercent", label: "R&D % of revenue", format: "percent", projectedIsAssumption: true,
+  { key: "rdPercent", label: "R&D % of revenue", format: "percent", projectedIsAssumption: true, requires: ["revenue"],
     actual: (c) => `${c.ref("researchAndDevelopment")}/${c.ref("revenue")}`, projected: seedAssumption },
-  { key: "sgaPercent", label: "SG&A % of revenue", format: "percent", projectedIsAssumption: true,
+  { key: "sgaPercent", label: "SG&A % of revenue", format: "percent", projectedIsAssumption: true, requires: ["revenue"],
     actual: (c) => `${c.ref("sellingGeneralAdmin")}/${c.ref("revenue")}`, projected: seedAssumption },
-  { key: "otherOpexPercent", label: "Other opex % of revenue", format: "percent", projectedIsAssumption: true,
+  { key: "otherOpexPercent", label: "Other opex % of revenue", format: "percent", projectedIsAssumption: true, requires: ["revenue", "operatingIncome"],
     actual: (c) => `${c.ref("otherOperatingExpense")}/${c.ref("revenue")}`, projected: seedAssumption },
-  { key: "taxRate", label: "Effective tax rate", format: "percent", projectedIsAssumption: true,
+  { key: "taxRate", label: "Effective tax rate", format: "percent", projectedIsAssumption: true, requires: ["pretaxIncome"],
     actual: (c) => `${c.ref("incomeTax")}/${c.ref("pretaxIncome")}`, projected: seedAssumption },
-  { key: "operatingMargin", label: "Operating margin", format: "percent",
+  { key: "operatingMargin", label: "Operating margin", format: "percent", requires: ["revenue", "operatingIncome"],
     actual: (c) => `${c.ref("operatingIncome")}/${c.ref("revenue")}`,
     projected: (c) => `${c.ref("operatingIncome")}/${c.ref("revenue")}` },
 ];
@@ -119,22 +124,22 @@ const BALANCE_ROWS: RowSpec[] = [
   { key: "shortTermInvestments", label: "Short-term investments", actual: "filing" },
   { key: "receivables", label: "Accounts receivable, net", actual: "filing" },
   { key: "inventory", label: "Inventory", actual: "filing" },
-  { key: "otherCurrentAssets", label: "Other current assets",
+  { key: "otherCurrentAssets", label: "Other current assets", requires: ["totalCurrentAssets"],
     actual: (c) => `${c.ref("totalCurrentAssets")}-${c.ref("cash")}-${c.ref("shortTermInvestments")}-${c.ref("receivables")}-${c.ref("inventory")}` },
   { key: "totalCurrentAssets", label: "Total current assets", actual: "filing", bold: true },
   { key: "ppe", label: "Property, plant and equipment, net", actual: "filing" },
   { key: "goodwill", label: "Goodwill", actual: "filing" },
-  { key: "otherNonCurrentAssets", label: "Other non-current assets",
+  { key: "otherNonCurrentAssets", label: "Other non-current assets", requires: ["totalAssets", "totalCurrentAssets"],
     actual: (c) => `${c.ref("totalAssets")}-${c.ref("totalCurrentAssets")}-${c.ref("ppe")}-${c.ref("goodwill")}` },
   { key: "totalAssets", label: "Total assets", actual: "filing", bold: true },
   "blank",
   { key: "accountsPayable", label: "Accounts payable", actual: "filing" },
   { key: "shortTermDebt", label: "Short-term debt", actual: "filing" },
-  { key: "otherCurrentLiabilities", label: "Other current liabilities",
+  { key: "otherCurrentLiabilities", label: "Other current liabilities", requires: ["totalCurrentLiabilities"],
     actual: (c) => `${c.ref("totalCurrentLiabilities")}-${c.ref("accountsPayable")}-${c.ref("shortTermDebt")}` },
   { key: "totalCurrentLiabilities", label: "Total current liabilities", actual: "filing", bold: true },
   { key: "longTermDebt", label: "Long-term debt", actual: "filing" },
-  { key: "otherNonCurrentLiabilities", label: "Other non-current liabilities",
+  { key: "otherNonCurrentLiabilities", label: "Other non-current liabilities", requires: ["totalCurrentLiabilities"],
     actual: (c) => `${c.ref("totalLiabilities")}-${c.ref("totalCurrentLiabilities")}-${c.ref("longTermDebt")}` },
   { key: "totalLiabilities", label: "Total liabilities", actual: "filing", bold: true,
     fallback: {
@@ -145,7 +150,7 @@ const BALANCE_ROWS: RowSpec[] = [
   { key: "totalEquity", label: "Total equity", actual: "filing", bold: true },
   { key: "totalLiabilitiesAndEquity", label: "Total liabilities and equity", actual: "filing", bold: true },
   "blank",
-  { key: "balanceDifference", label: "Assets minus liabilities and equity",
+  { key: "balanceDifference", label: "Assets minus liabilities and equity", requires: ["totalAssets", "totalLiabilitiesAndEquity"],
     actual: (c) => `${c.ref("totalAssets")}-${c.ref("totalLiabilitiesAndEquity")}` },
 ];
 
@@ -153,30 +158,30 @@ const CASHFLOW_ROWS: RowSpec[] = [
   { key: "cfNetIncome", label: "Net income (incl. minority interest)", actual: "filing" },
   { key: "depreciationAmortization", label: "Depreciation and amortization", actual: "filing" },
   { key: "stockCompensation", label: "Stock-based compensation", actual: "filing" },
-  { key: "otherOperatingCashFlow", label: "Working capital and other",
+  { key: "otherOperatingCashFlow", label: "Working capital and other", requires: ["cashFromOperations", "cfNetIncome"],
     actual: (c) => `${c.ref("cashFromOperations")}-${c.ref("cfNetIncome")}-${c.ref("depreciationAmortization")}-${c.ref("stockCompensation")}` },
   { key: "cashFromOperations", label: "Cash from operations", actual: "filing", bold: true },
   "blank",
   { key: "capex", label: "Capital expenditures", actual: "filing" },
-  { key: "otherInvesting", label: "Other investing",
+  { key: "otherInvesting", label: "Other investing", requires: ["cashFromInvesting"],
     actual: (c) => `${c.ref("cashFromInvesting")}-${c.ref("capex")}` },
   { key: "cashFromInvesting", label: "Cash from investing", actual: "filing", bold: true },
   "blank",
   { key: "dividendsPaid", label: "Dividends paid", actual: "filing" },
   { key: "shareRepurchases", label: "Share repurchases", actual: "filing" },
-  { key: "otherFinancing", label: "Other financing",
+  { key: "otherFinancing", label: "Other financing", requires: ["cashFromFinancing"],
     actual: (c) => `${c.ref("cashFromFinancing")}-${c.ref("dividendsPaid")}-${c.ref("shareRepurchases")}` },
   { key: "cashFromFinancing", label: "Cash from financing", actual: "filing", bold: true },
   "blank",
-  { key: "fxAndOther", label: "FX and other",
+  { key: "fxAndOther", label: "FX and other", requires: ["netChangeInCash", "cashFromOperations", "cashFromInvesting", "cashFromFinancing"],
     actual: (c) => `${c.ref("netChangeInCash")}-${c.ref("cashFromOperations")}-${c.ref("cashFromInvesting")}-${c.ref("cashFromFinancing")}` },
   { key: "netChangeInCash", label: "Net change in cash", actual: "filing", bold: true },
   { key: "beginningCash", label: "Cash at beginning of period", actual: "filing" },
-  { key: "endingCash", label: "Cash at end of period", bold: true,
+  { key: "endingCash", label: "Cash at end of period", bold: true, requires: ["beginningCash", "netChangeInCash"],
     actual: (c) => `${c.ref("beginningCash")}+${c.ref("netChangeInCash")}` },
   { key: "endingCashReported", label: "Cash at end of period (reported)", actual: "filing" },
   "blank",
-  { key: "freeCashFlow", label: "Free cash flow", bold: true,
+  { key: "freeCashFlow", label: "Free cash flow", bold: true, requires: ["cashFromOperations"],
     actual: (c) => `${c.ref("cashFromOperations")}+${c.ref("capex")}` },
 ];
 
@@ -315,7 +320,18 @@ export function buildWorkbook(extraction: Extraction, options: BuildOptions): Wo
         }
 
         const formula = spec.actual?.(context);
-        if (formula) set(row, col, { ...base, formula, role: "formula" });
+        if (!formula) return;
+        const missing = (spec.requires ?? []).filter((key) => !extraction.lines[key]?.[p]);
+        if (missing.length) {
+          const labels = missing.map((key) => LINE_DEF_BY_KEY[key]?.label ?? key).join(" and ");
+          set(row, col, {
+            ...base,
+            role: "formula",
+            note: `Left blank: ${labels} is missing for ${period.label}. Once it is filled in, this cell's formula is =${formula}`,
+          });
+          return;
+        }
+        set(row, col, { ...base, formula, role: "formula" });
       });
     });
 

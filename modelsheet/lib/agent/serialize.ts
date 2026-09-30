@@ -22,7 +22,9 @@ function describeCell(address: string, cell: Cell, value: CellValue | undefined)
     return `${address}: =${cell.formula} → ${formatValue(value)}${tag}`;
   }
   if (cell.value === undefined || cell.value === null) {
-    return `${address}: blank${cell.note?.startsWith("Missing") ? " [missing from filings]" : ""}`;
+    if (cell.note?.startsWith("Missing")) return `${address}: blank [missing from filings]`;
+    if (cell.note?.startsWith("Left blank")) return `${address}: blank [${cell.note}]`;
+    return `${address}: blank`;
   }
   const tag = cell.source ? " [from filing]" : cell.role === "manual" ? " [typed by user]" : "";
   return `${address}=${formatValue(cell.value)}${tag}`;
