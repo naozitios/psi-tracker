@@ -206,6 +206,20 @@ function gapCheck(reader: LineReader, workbook: Workbook): CheckResult {
   );
 }
 
+function valuationCheck(reader: LineReader, workbook: Workbook): CheckResult | null {
+  if (!workbook.lines["dcf.wacc"]) return null;
+  const wacc = reader.number("dcf.wacc", 0);
+  const growth = reader.number("dcf.terminalGrowth", 0);
+  const findings: Array<{ detail: string; cells: string[] }> = [];
+  if (wacc !== null && growth !== null && wacc <= growth) {
+    findings.push({
+      detail: `WACC (${(wacc * 100).toFixed(1)}%) must be above terminal growth (${(growth * 100).toFixed(1)}%), or the terminal value is meaningless`,
+      cells: [reader.key("dcf.wacc", 0)!, reader.key("dcf.terminalGrowth", 0)!],
+    });
+  }
+  return summarize("valuation", "Valuation inputs are consistent", "fail", findings, "WACC is above terminal growth.");
+}
+
 /** Integrity checks that run after every edit (PRD F4). */
 export function runChecks(workbook: Workbook, values: Values): CheckResult[] {
   const reader = new LineReader(workbook, values);
@@ -225,8 +239,9 @@ export function runChecks(workbook: Workbook, values: Values): CheckResult[] {
     signCheck(reader, workbook),
     errorCheck(workbook, values),
     forecastInputCheck(reader, workbook),
+    valuationCheck(reader, workbook),
     gapCheck(reader, workbook),
-  ];
+  ].filter((c): c is CheckResult => c !== null);
 }
 
 export function exportBlockers(checks: CheckResult[]): CheckResult[] {

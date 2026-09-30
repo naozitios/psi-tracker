@@ -10,6 +10,7 @@ import type {
 } from "../sheet/types";
 import { LINE_DEF_BY_KEY } from "../sec/template";
 import type { Extraction } from "../sec/extract";
+import { buildDcfSheet } from "./dcf";
 import { buildQuarterlySheet } from "./quarterly";
 
 export const SHEET_INCOME = "Income";
@@ -345,6 +346,10 @@ export function buildWorkbook(extraction: Extraction, options: BuildOptions): Wo
       frozenRows: PERIOD_END_ROW,
     };
   });
+
+  const dcf = buildDcfSheet({ periods: allPeriods, lines });
+  sheets.push(dcf.sheet);
+  Object.assign(lines, dcf.lines);
 
   // Recent quarters reference the annual sheets, so they are built last.
   const quarterly = extraction.quarters

@@ -17,7 +17,7 @@ describe("workbookToXlsx (PRD F7)", async () => {
 
   it("includes the model sheets plus About, Sources and Checks", () => {
     expect(book.worksheets.map((w) => w.name)).toEqual([
-      "About", "Income", "BalanceSheet", "CashFlow", "Quarterly", "Sources", "Checks",
+      "About", "Income", "BalanceSheet", "CashFlow", "DCF", "Quarterly", "Sources", "Checks",
     ]);
   });
 
