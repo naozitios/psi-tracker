@@ -1,25 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import type { Proposal } from "@/lib/agent/proposal";
+import type { ChatMessage, LogEntry, Proposal } from "@/lib/models/types";
 import { cellInput, type AppliedEdit } from "@/lib/sheet/edits";
-
-export interface ChatMessage {
-  role: "user" | "assistant" | "note";
-  text: string;
-}
-
-export interface LogEntry {
-  id: number;
-  author: "assistant" | "you";
-  summary: string;
-  applied: AppliedEdit[];
-  at: string;
-}
 
 interface Props {
   messages: ChatMessage[];
   pending: boolean;
+  /** Another request is in flight; decisions wait for it. */
+  busy: boolean;
   proposal: Proposal | null;
   log: LogEntry[];
   onSend: (text: string) => void;
@@ -50,13 +39,17 @@ function EditRow({ edit }: { edit: AppliedEdit }) {
   );
 }
 
-export function ChatPanel({ messages, pending, proposal, log, onSend, onAccept, onReject }: Props) {
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+export function ChatPanel({ messages, pending, busy, proposal, log, onSend, onAccept, onReject }: Props) {
   const [text, setText] = useState("");
 
   function submit(event?: React.FormEvent) {
     event?.preventDefault();
     const message = text.trim();
-    if (!message || pending) return;
+    if (!message || pending || busy) return;
     setText("");
     onSend(message);
   }
@@ -107,8 +100,10 @@ export function ChatPanel({ messages, pending, proposal, log, onSend, onAccept, 
             </p>
           )}
           <div className="actions">
-            <button onClick={onAccept}>Accept</button>
-            <button className="secondary" onClick={onReject}>
+            <button onClick={onAccept} disabled={busy}>
+              Accept
+            </button>
+            <button className="secondary" onClick={onReject} disabled={busy}>
               Reject
             </button>
           </div>
@@ -127,7 +122,7 @@ export function ChatPanel({ messages, pending, proposal, log, onSend, onAccept, 
             if (e.key === "Enter" && !e.shiftKey) submit(e);
           }}
         />
-        <button type="submit" disabled={pending || !!proposal || !text.trim()}>
+        <button type="submit" disabled={pending || busy || !!proposal || !text.trim()}>
           Send
         </button>
       </form>
@@ -139,7 +134,7 @@ export function ChatPanel({ messages, pending, proposal, log, onSend, onAccept, 
             {[...log].reverse().map((entry) => (
               <li key={entry.id}>
                 <span className="muted small">
-                  {entry.at} · {entry.author}
+                  {formatTime(entry.at)} · {entry.author}
                 </span>{" "}
                 {entry.summary}
                 <ul className="edits">

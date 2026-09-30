@@ -21,6 +21,14 @@ export type CreateMessage = (params: CreateParams) => Promise<Message>;
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 const MAX_HISTORY_TURNS = 10;
+/** About 25k tokens: bounds what one request can cost, whatever the workbook holds. */
+export const MAX_WORKBOOK_PROMPT_CHARS = 90_000;
+
+export class WorkbookTooLarge extends Error {
+  constructor() {
+    super("This model has grown too large for the assistant. Remove unused rows and try again.");
+  }
+}
 
 export const SYSTEM_PROMPT = `You are the modeling assistant inside a spreadsheet that holds a company's financial model built from its SEC 10-K filings. The user is a self-directed investor. You change the workbook only by calling propose_edits; the user sees your edits as a highlighted diff and accepts or rejects them, so nothing changes until they agree.
 
@@ -89,6 +97,7 @@ function buildMessages(
   const recent = history.filter((t) => t.text.trim()).slice(-MAX_HISTORY_TURNS);
   while (recent.length && recent[0].role !== "user") recent.shift();
   const sheet = serializeWorkbook(workbook, evaluateWorkbook(workbook));
+  if (sheet.length > MAX_WORKBOOK_PROMPT_CHARS) throw new WorkbookTooLarge();
   return [
     ...recent.map((turn) => ({ role: turn.role, content: turn.text })),
     {
@@ -128,6 +137,7 @@ export async function runAgent(
   request: { workbook: Workbook; message: string; history?: ChatTurn[] },
   createMessage: CreateMessage = defaultCreate,
 ): Promise<AgentResult> {
+  const messages = buildMessages(request.workbook, request.message, request.history ?? []);
   const response = await createMessage({
     model: process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
     max_tokens: 16000,
@@ -136,7 +146,7 @@ export async function runAgent(
     output_config: { effort: "medium" },
     system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     tools: [PROPOSE_EDITS_TOOL],
-    messages: buildMessages(request.workbook, request.message, request.history ?? []),
+    messages,
   });
 
   if (response.stop_reason === "refusal") {

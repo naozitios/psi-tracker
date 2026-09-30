@@ -1,43 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentResponse, Proposal } from "@/lib/agent/proposal";
+import { api, ApiError } from "@/lib/client/api";
 import { exportBlockers, runChecks } from "@/lib/model/checks";
+import type { ChatMessage, ModelState } from "@/lib/models/types";
 import { cellKey, parseAddress, toAddress } from "@/lib/sheet/address";
-import {
-  applyEdits,
-  cellInput,
-  revertEdits,
-  validateEdits,
-  type CellEdit,
-} from "@/lib/sheet/edits";
+import { applyEdits, cellInput } from "@/lib/sheet/edits";
 import { evaluateWorkbook } from "@/lib/sheet/engine";
-import type { Workbook } from "@/lib/sheet/types";
 import { CellInspector } from "./CellInspector";
-import { ChatPanel, type ChatMessage, type LogEntry } from "./ChatPanel";
+import { ChatPanel } from "./ChatPanel";
 import { ChecksPanel } from "./ChecksPanel";
 import { SheetGrid, type Highlights } from "./SheetGrid";
 
-function timeNow(): string {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-export function Workbench({ initial }: { initial: Workbook }) {
-  const [workbook, setWorkbook] = useState(initial);
-  const [activeSheet, setActiveSheet] = useState(initial.sheets[0].name);
+export function Workbench({ initial }: { initial: ModelState }) {
+  const [state, setState] = useState(initial);
+  const [activeSheet, setActiveSheet] = useState(initial.workbook.sheets[0].name);
   const [selected, setSelected] = useState<string | null>("B4");
   const [draft, setDraft] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [panel, setPanel] = useState<"cell" | "checks">("cell");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [pending, setPending] = useState(false);
-  const [proposal, setProposal] = useState<Proposal | null>(null);
-  const [log, setLog] = useState<LogEntry[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [thinking, setThinking] = useState(false);
+  const [notes, setNotes] = useState<ChatMessage[]>([]);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const formulaInput = useRef<HTMLInputElement>(null);
-  const nextLogId = useRef(1);
 
+  const { workbook, proposal } = state;
   const values = useMemo(() => evaluateWorkbook(workbook), [workbook]);
   const checks = useMemo(() => runChecks(workbook, values), [workbook, values]);
 
@@ -78,27 +67,40 @@ export function Workbench({ initial }: { initial: Workbook }) {
     setPanel("cell");
   }, []);
 
-  const startEdit = useCallback(() => {
+  const startEdit = useCallback((initialText?: string) => {
+    if (initialText !== undefined) setDraft(initialText);
     formulaInput.current?.focus();
-    formulaInput.current?.select();
+    if (initialText === undefined) formulaInput.current?.select();
   }, []);
 
-  function record(author: LogEntry["author"], summary: string, applied: LogEntry["applied"]) {
-    setLog((entries) => [...entries, { id: nextLogId.current++, author, summary, applied, at: timeNow() }]);
+  function addNote(text: string) {
+    setNotes((n) => [...n, { role: "note", text }]);
   }
 
-  function commitDraft() {
-    if (!selected || proposal || pending) return;
-    if (draft === cellInput(workbook.sheets.find((s) => s.name === activeSheet)?.cells[selected])) return;
-    const edit: CellEdit = { sheet: activeSheet, cell: selected, input: draft };
-    const { valid, errors } = validateEdits(workbook, [edit]);
-    if (!valid.length) {
-      setEditError(errors[0] ?? "That edit could not be applied.");
-      return;
+  /** Runs a server mutation; a version conflict reloads the latest model. */
+  async function mutate(run: () => Promise<ModelState>, onError?: (message: string) => void): Promise<boolean> {
+    setBusy(true);
+    try {
+      setState(await run());
+      setNotes([]);
+      return true;
+    } catch (err) {
+      const message = (err as Error).message;
+      if (err instanceof ApiError && err.status === 409 && !message.startsWith("Accept or reject")) {
+        setState(await api.loadModel(state.id));
+      }
+      (onError ?? addNote)(message);
+      return false;
+    } finally {
+      setBusy(false);
     }
-    const { workbook: next, applied } = applyEdits(workbook, valid);
-    setWorkbook(next);
-    record("you", `Edited ${activeSheet}!${selected}`, applied);
+  }
+
+  async function commitDraft() {
+    if (!selected || proposal || busy || thinking) return;
+    const current = workbook.sheets.find((s) => s.name === activeSheet)?.cells[selected];
+    if (draft === cellInput(current)) return;
+    await mutate(() => api.saveEdit(state.id, state.version, activeSheet, selected, draft), setEditError);
   }
 
   function moveSelection(dRow: number, dCol: number) {
@@ -115,85 +117,51 @@ export function Workbench({ initial }: { initial: Workbook }) {
       ArrowDown: [1, 0],
       ArrowLeft: [0, -1],
       ArrowRight: [0, 1],
+      Tab: [0, 1],
     };
     const move = moves[event.key];
     if (move) {
       event.preventDefault();
       moveSelection(...move);
-    } else if (event.key === "Enter" && !proposal) {
+      return;
+    }
+    if (proposal || busy) return;
+    if (event.key === "Enter" || event.key === "F2") {
       event.preventDefault();
       startEdit();
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // Typing on a selected cell starts replacing its contents, as in Excel.
+      event.preventDefault();
+      startEdit(event.key);
     }
   }
 
   async function send(text: string) {
-    const history = messages
-      .filter((m) => m.role !== "note")
-      .map((m) => ({ role: m.role as "user" | "assistant", text: m.text }));
-    setMessages((m) => [...m, { role: "user", text }]);
-    setPending(true);
+    setThinking(true);
+    setNotes([{ role: "user", text }]);
     try {
-      const res = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workbook, message: text, history }),
-      });
-      const data = (await res.json().catch(() => ({}))) as Partial<AgentResponse> & { error?: string };
-      if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
-      const notes: ChatMessage[] = (data.warnings ?? []).map((w) => ({ role: "note", text: `Skipped: ${w}` }));
-      setMessages((m) => [...m, { role: "assistant", text: data.reply ?? "" }, ...notes]);
-      if (data.proposal) {
-        setProposal(data.proposal);
-        const first = data.proposal.edits[0];
-        if (first) {
-          setActiveSheet(first.sheet);
-          setSelected(first.cell);
-        }
-      }
+      const next = await api.ask(state.id, text);
+      setState(next);
+      setNotes([]);
+      const first = next.proposal?.edits[0];
+      if (first) navigate(first.sheet, first.cell);
     } catch (err) {
-      setMessages((m) => [...m, { role: "note", text: (err as Error).message }]);
+      addNote((err as Error).message);
     } finally {
-      setPending(false);
+      setThinking(false);
     }
-  }
-
-  function accept() {
-    if (!proposal) return;
-    const { workbook: next, applied } = applyEdits(workbook, proposal.edits);
-    setWorkbook(next);
-    record("assistant", proposal.summary, applied);
-    setProposal(null);
-    setMessages((m) => [...m, { role: "note", text: "Change accepted." }]);
-  }
-
-  function reject() {
-    setProposal(null);
-    setMessages((m) => [...m, { role: "note", text: "Change rejected. Nothing was modified." }]);
-  }
-
-  function undo() {
-    const last = log[log.length - 1];
-    if (!last || proposal) return;
-    setWorkbook(revertEdits(workbook, last.applied));
-    setLog(log.slice(0, -1));
-    setMessages((m) => [...m, { role: "note", text: `Undid: ${last.summary}` }]);
   }
 
   async function exportXlsx() {
     setExportError(null);
     setExporting(true);
     try {
-      const res = await fetch("/api/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workbook }),
-      });
+      const res = await fetch(api.exportUrl(state.id));
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? `Export failed (${res.status})`);
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
       a.href = url;
       a.download = `${workbook.company.ticker || "model"}-model.xlsx`;
@@ -208,11 +176,15 @@ export function Workbench({ initial }: { initial: Workbook }) {
 
   const failingCount = shownChecks.filter((c) => c.status === "fail").length;
   const warnCount = shownChecks.filter((c) => c.status === "warn").length;
+  const locked = !!proposal || busy || thinking;
 
   return (
     <div className="workbench">
       <div className="main">
         <div className="toolbar">
+          <div className="model-title">
+            <strong>{workbook.company.name}</strong> <span className="muted">({workbook.company.ticker})</span>
+          </div>
           <nav className="sheet-tabs" aria-label="Sheets">
             {shown.sheets.map((s) => (
               <button
@@ -225,12 +197,16 @@ export function Workbench({ initial }: { initial: Workbook }) {
             ))}
           </nav>
           <div className="toolbar-actions">
-            <button className="secondary" onClick={undo} disabled={!log.length || !!proposal}>
+            <button
+              className="secondary"
+              onClick={() => mutate(() => api.undo(state.id, state.version))}
+              disabled={!state.log.length || locked}
+            >
               Undo
             </button>
             <button
               onClick={exportXlsx}
-              disabled={exporting || blockers.length > 0 || !!proposal}
+              disabled={exporting || blockers.length > 0 || locked}
               title={blockers.length ? `Blocked by failing checks: ${blockers.map((b) => b.label).join(", ")}` : undefined}
             >
               {exporting ? "Exporting…" : "Export .xlsx"}
@@ -245,15 +221,18 @@ export function Workbench({ initial }: { initial: Workbook }) {
             ref={formulaInput}
             aria-label="Cell contents"
             value={draft}
-            disabled={!selected || !!proposal || pending}
+            disabled={!selected || locked}
             onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitDraft}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                commitDraft();
+                e.preventDefault();
                 (e.target as HTMLInputElement).blur();
+                moveSelection(1, 0);
               } else if (e.key === "Escape") {
                 setDraft(selected ? cellInput(sheet.cells[selected]) : "");
-                (e.target as HTMLInputElement).blur();
+                setEditError(null);
+                requestAnimationFrame(() => (e.target as HTMLInputElement).blur());
               }
             }}
           />
@@ -281,7 +260,7 @@ export function Workbench({ initial }: { initial: Workbook }) {
           <span className="swatch role-filing">123</span> from a filing ·{" "}
           <span className="swatch role-formula">123</span> formula ·{" "}
           <span className="swatch role-assumption">12%</span> forecast assumption ·{" "}
-          <span className="swatch role-manual">123</span> typed by you
+          <span className="swatch role-manual">123</span> typed by you · saved automatically
         </p>
       </div>
 
@@ -309,13 +288,14 @@ export function Workbench({ initial }: { initial: Workbook }) {
           )}
         </div>
         <ChatPanel
-          messages={messages}
-          pending={pending}
+          messages={[...state.messages, ...notes]}
+          pending={thinking}
+          busy={busy}
           proposal={proposal}
-          log={log}
+          log={state.log}
           onSend={send}
-          onAccept={accept}
-          onReject={reject}
+          onAccept={() => proposal && mutate(() => api.decide(state.id, proposal.id, "accept"))}
+          onReject={() => proposal && mutate(() => api.decide(state.id, proposal.id, "reject"))}
         />
       </aside>
     </div>

@@ -1,3 +1,4 @@
+import type { Queryable } from "../db";
 import { HOUR, padCik, secFetchJson } from "./client";
 
 export interface TickerEntry {
@@ -10,8 +11,9 @@ interface RawTickerFile {
   [index: string]: { cik_str: number; ticker: string; title: string };
 }
 
-export async function loadTickers(): Promise<TickerEntry[]> {
+export async function loadTickers(db: Queryable): Promise<TickerEntry[]> {
   const raw = await secFetchJson<RawTickerFile>(
+    db,
     "https://www.sec.gov/files/company_tickers.json",
     24 * HOUR,
   );

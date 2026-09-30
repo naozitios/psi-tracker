@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // ExcelJS is only used by the export route; keep it out of the server bundle.
-  serverExternalPackages: ["exceljs"],
+  // Server-only packages loaded from node_modules rather than bundled.
+  serverExternalPackages: ["exceljs", "pg", "@electric-sql/pglite"],
 };
 
 export default nextConfig;

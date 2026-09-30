@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { api } from "@/lib/client/api";
 import type { CompanyProfile } from "@/lib/sec/submissions";
 import type { TickerEntry } from "@/lib/sec/tickers";
-import type { Workbook } from "@/lib/sheet/types";
 
 async function getJson<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
@@ -11,7 +11,7 @@ async function getJson<T>(res: Response): Promise<T> {
   return data as T;
 }
 
-export function CompanyPicker({ onBuilt }: { onBuilt: (workbook: Workbook) => void }) {
+export function CompanyPicker({ onBuilt }: { onBuilt: (modelId: string) => void }) {
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<TickerEntry[] | null>(null);
   const [chosen, setChosen] = useState<TickerEntry | null>(null);
@@ -64,14 +64,8 @@ export function CompanyPicker({ onBuilt }: { onBuilt: (workbook: Workbook) => vo
     setError(null);
     setBusy("build");
     try {
-      const data = await getJson<{ workbook: Workbook }>(
-        await fetch("/api/model", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cik: chosen.cik, ticker: chosen.ticker }),
-        }),
-      );
-      onBuilt(data.workbook);
+      const { id } = await api.createModel(chosen.cik, chosen.ticker);
+      onBuilt(id);
     } catch (err) {
       setError((err as Error).message);
       setBusy(null);

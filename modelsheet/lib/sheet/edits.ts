@@ -18,6 +18,10 @@ export interface AppliedEdit extends CellEdit {
 /** Rows and columns an edit may add beyond the current sheet size. */
 const MAX_NEW_ROWS = 50;
 const MAX_NEW_COLS = 5;
+/** Hard caps that keep every workbook small enough to recalculate and send to the agent. */
+export const MAX_SHEET_ROWS = 400;
+export const MAX_SHEET_COLS = 40;
+export const MAX_INPUT_LENGTH = 2000;
 
 export function parseInput(input: string): { formula: string } | { value: Scalar } | null {
   const text = input.trim();
@@ -63,8 +67,15 @@ export function validateEdits(workbook: Workbook, edits: CellEdit[]): EditValida
       errors.push(`${sheet.name}!${edit.cell}: not a cell address`);
       continue;
     }
-    if (pos.row > sheet.rowCount + MAX_NEW_ROWS || pos.col > sheet.colCount + MAX_NEW_COLS) {
+    if (
+      pos.row > Math.min(sheet.rowCount + MAX_NEW_ROWS, MAX_SHEET_ROWS) ||
+      pos.col > Math.min(sheet.colCount + MAX_NEW_COLS, MAX_SHEET_COLS)
+    ) {
       errors.push(`${sheet.name}!${edit.cell}: outside the sheet`);
+      continue;
+    }
+    if (edit.input.length > MAX_INPUT_LENGTH) {
+      errors.push(`${sheet.name}!${edit.cell}: input is longer than ${MAX_INPUT_LENGTH} characters`);
       continue;
     }
     const parsed = parseInput(edit.input);

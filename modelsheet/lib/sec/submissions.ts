@@ -1,3 +1,4 @@
+import type { Queryable } from "../db";
 import { HOUR, filingIndexUrl, padCik, secFetchJson } from "./client";
 
 export interface FilingSummary {
@@ -82,8 +83,9 @@ export function summarizeSubmissions(raw: RawSubmissions, maxReports = 5): Compa
   };
 }
 
-export async function loadCompanyProfile(cik: string): Promise<CompanyProfile> {
+export async function loadCompanyProfile(db: Queryable, cik: string): Promise<CompanyProfile> {
   const raw = await secFetchJson<RawSubmissions>(
+    db,
     `https://data.sec.gov/submissions/CIK${padCik(cik)}.json`,
     HOUR,
   );
