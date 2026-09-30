@@ -10,6 +10,7 @@ import type {
 } from "../sheet/types";
 import { LINE_DEF_BY_KEY } from "../sec/template";
 import type { Extraction } from "../sec/extract";
+import { buildQuarterlySheet } from "./quarterly";
 
 export const SHEET_INCOME = "Income";
 export const SHEET_BALANCE = "BalanceSheet";
@@ -344,6 +345,15 @@ export function buildWorkbook(extraction: Extraction, options: BuildOptions): Wo
       frozenRows: PERIOD_END_ROW,
     };
   });
+
+  // Recent quarters reference the annual sheets, so they are built last.
+  const quarterly = extraction.quarters
+    ? buildQuarterlySheet(extraction.quarters, { periods: actuals, lines, values: extraction.lines })
+    : null;
+  if (quarterly) {
+    sheets.push(quarterly.sheet);
+    Object.assign(lines, quarterly.lines);
+  }
 
   const company: Company = {
     cik: extraction.cik,

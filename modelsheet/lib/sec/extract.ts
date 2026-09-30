@@ -1,6 +1,7 @@
 import { filingIndexUrl, padCik } from "./client";
 import { LINE_DEFS, scaleFor, type LineDef } from "./template";
 import type { FilingSource, Period } from "../sheet/types";
+import { extractQuarters, type QuarterExtraction } from "./quarters";
 
 // Shapes of https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json
 export interface FactEntry {
@@ -38,16 +39,17 @@ export interface Extraction {
   periods: Period[];
   /** One entry per period, null where the filings have no value. */
   lines: Record<string, Array<ExtractedValue | null>>;
+  quarters?: QuarterExtraction;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DATE_TOLERANCE_DAYS = 7;
 
-function daysBetween(a: string, b: string): number {
+export function daysBetween(a: string, b: string): number {
   return (Date.parse(b) - Date.parse(a)) / DAY_MS;
 }
 
-function shiftDate(date: string, days: number): string {
+export function shiftDate(date: string, days: number): string {
   return new Date(Date.parse(date) + days * DAY_MS).toISOString().slice(0, 10);
 }
 
@@ -63,7 +65,7 @@ function isFullYear(entry: FactEntry): boolean {
 
 // Concepts nearly every filer reports for each fiscal year; used to find
 // the fiscal periods before any line item is read.
-const PERIOD_ANCHORS = [
+export const PERIOD_ANCHORS = [
   "NetIncomeLoss",
   "ProfitLoss",
   "Revenues",
@@ -115,13 +117,14 @@ function matchesPeriod(entry: FactEntry, def: LineDef, period: Period): boolean 
 }
 
 /**
- * The value for one line item and period. Among matching facts the most
- * recently filed wins, so restated figures replace originals.
+ * The value for one line item, from the first concept with a fact that
+ * `matches`. Among matching facts the most recently filed wins, so
+ * restated figures replace originals.
  */
-function pickValue(
+export function pickValue(
   facts: CompanyFacts,
   def: LineDef,
-  period: Period,
+  matches: (entry: FactEntry) => boolean,
 ): ExtractedValue | null {
   const gaap = facts.facts["us-gaap"] ?? {};
   for (const concept of def.concepts) {
@@ -129,7 +132,7 @@ function pickValue(
     const entries = conceptFacts?.units[def.unit] ?? [];
     let best: FactEntry | null = null;
     for (const entry of entries) {
-      if (!matchesPeriod(entry, def, period)) continue;
+      if (!matches(entry)) continue;
       if (
         !best ||
         entry.filed > best.filed ||
@@ -167,7 +170,13 @@ export function extractFinancials(facts: CompanyFacts, maxYears = 5): Extraction
   const periods = findAnnualPeriods(facts, maxYears);
   const lines: Extraction["lines"] = {};
   for (const def of LINE_DEFS) {
-    lines[def.key] = periods.map((p) => pickValue(facts, def, p));
+    lines[def.key] = periods.map((p) => pickValue(facts, def, (e) => matchesPeriod(e, def, p)));
   }
-  return { cik: padCik(facts.cik), entityName: facts.entityName, periods, lines };
+  return {
+    cik: padCik(facts.cik),
+    entityName: facts.entityName,
+    periods,
+    lines,
+    quarters: extractQuarters(facts),
+  };
 }

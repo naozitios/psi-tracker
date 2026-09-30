@@ -35,7 +35,7 @@ describe("buildWorkbook", () => {
       "FY2020A", "FY2021A", "FY2022A", "FY2023A", "FY2024A",
       "FY2025E", "FY2026E", "FY2027E", "FY2028E", "FY2029E",
     ]);
-    expect(wb.sheets.map((s) => s.name)).toEqual([SHEET_INCOME, SHEET_BALANCE, SHEET_CASHFLOW]);
+    expect(wb.sheets.map((s) => s.name)).toEqual([SHEET_INCOME, SHEET_BALANCE, SHEET_CASHFLOW, "Quarterly"]);
     const income = wb.sheets[0];
     expect(income.cells.B1.value).toBe("FY2020A");
     expect(income.cells.K1.value).toBe("FY2029E");

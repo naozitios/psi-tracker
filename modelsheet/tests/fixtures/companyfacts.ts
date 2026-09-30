@@ -9,6 +9,8 @@ import type { CompanyFacts, FactEntry } from "@/lib/sec/extract";
 // - FY2022 revenue is restated in later filings
 // - 10-Q and fourth-quarter facts that must be ignored
 // - no "Liabilities" total, so the model must derive it
+// - 10-Qs for FY2023-FY2024 and the first quarter of FY2025, with
+//   quarterly income statements and year-to-date cash flows
 
 export const CIK = 1234567;
 
@@ -24,14 +26,20 @@ export const FISCAL_YEAR_ENDS: Record<number, string> = {
 
 const REVENUE: Record<number, number> = {
   2018: 250_000, 2019: 260_000, 2020: 274_000, 2021: 365_000, 2022: 394_000, 2023: 383_000, 2024: 391_000,
+  2025: 405_000,
 };
 export const RESTATED_FY2022_REVENUE = 394_100;
 const SHARES: Record<number, number> = {
   2018: 17_500, 2019: 17_000, 2020: 16_500, 2021: 16_000, 2022: 15_800, 2023: 15_500, 2024: 15_300,
+  2025: 15_100,
 };
 const CASH: Record<number, number> = {
   2017: 20_000, 2018: 25_000, 2019: 48_000, 2020: 38_000, 2021: 35_000, 2022: 24_000, 2023: 30_000, 2024: 29_000,
+  2025: 31_000,
 };
+
+/** Share of each fiscal year's flows that falls in each quarter. */
+export const QUARTER_SHARES = [0.24, 0.23, 0.25, 0.28];
 
 const M = 1_000_000;
 
@@ -139,6 +147,10 @@ const INSTANT_LINES: Line[] = [
   ["LiabilitiesAndStockholdersEquity", "USD", "liabilitiesAndEquity", "instant"],
 ];
 
+function shiftDays(date: string, days: number): string {
+  return new Date(Date.parse(date) + days * 24 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
 function startOf(year: number): string {
   const prevEnd = Date.parse(FISCAL_YEAR_ENDS[year - 1] ?? `${year - 1}-09-30`);
   return new Date(prevEnd + 24 * 3600 * 1000).toISOString().slice(0, 10);
@@ -195,11 +207,41 @@ export function buildCompanyFacts(): CompanyFacts {
     add("OperatingIncomeLoss", "USD", { start: q4Start, end: q4End, val: 1 * M, ...meta, fp: "FY" });
   }
 
-  // Quarterly filings: a 10-Q with a quarter and a nine-month year-to-date figure.
-  add("NetIncomeLoss", "USD", {
-    start: "2024-09-29", end: "2024-12-28", val: 30_000 * M,
-    accn: "0001234567-25-000050", fy: 2025, fp: "Q1", form: "10-Q", filed: "2025-01-31",
-  });
+  // 10-Qs: three-month income statements (with the prior-year quarter as
+  // comparative) and year-to-date cash flows.
+  const QUARTER_LINES: Array<[string, string, string, number?]> = [
+    ["RevenueFromContractWithCustomerExcludingAssessedTax", "USD", "revenue"],
+    ...DURATION_LINES.filter(([c]) => !c.startsWith("Payments") && !c.startsWith("NetCash") && !c.startsWith("CashCash") && c !== "DepreciationDepletionAndAmortization" && c !== "ShareBasedCompensation")
+      .map(([c, u, k, , s]) => [c, u, k, s] as [string, string, string, number?]),
+  ];
+  const quarterFacts = (year: number, q: number) => {
+    const start = startOf(year);
+    const f = figures(year);
+    const end = shiftDays(start, 91 * q - 1);
+    const share = QUARTER_SHARES[q - 1];
+    const cumulative = QUARTER_SHARES.slice(0, q).reduce((a, b) => a + b, 0);
+    const qStart = shiftDays(start, 91 * (q - 1));
+    const values: Record<string, number> = {};
+    for (const [, , key] of QUARTER_LINES) values[key] = key === "shares" ? f.shares : f[key] * share;
+    values.eps = values.netIncome / f.shares;
+    return { start, end, qStart, f, cumulative, values };
+  };
+  const tenQs: Array<[number, number]> = [
+    [2023, 1], [2023, 2], [2023, 3], [2024, 1], [2024, 2], [2024, 3], [2025, 1],
+  ];
+  for (const [year, q] of tenQs) {
+    const cur = quarterFacts(year, q);
+    const filed = shiftDays(cur.end, 35);
+    const meta = { accn: `0001234567-${String(year).slice(2)}-0002${q}0`, fy: year, fp: `Q${q}`, form: "10-Q", filed };
+    const periods = [cur, quarterFacts(year - 1, q)];
+    for (const p of periods) {
+      for (const [concept, unit, key, scale] of QUARTER_LINES) {
+        add(concept, unit, { start: p.qStart, end: p.end, val: p.values[key] * (scale ?? M), ...meta });
+      }
+      add("NetCashProvidedByUsedInOperatingActivities", "USD", { start: p.start, end: p.end, val: p.f.cfo * p.cumulative * M, ...meta });
+      add("PaymentsToAcquirePropertyPlantAndEquipment", "USD", { start: p.start, end: p.end, val: p.f.capex * p.cumulative * M, ...meta });
+    }
+  }
   add("AssetsCurrent", "USD", {
     end: "2024-12-28", val: 1 * M,
     accn: "0001234567-25-000050", fy: 2025, fp: "Q1", form: "10-Q", filed: "2025-01-31",
