@@ -92,3 +92,7 @@ The look takes its cues from a dark, editorial finance site: black background, w
 
 - The API response shape is modelled on data.gov.sg's v2 real-time API (`data.items[0].readings.psi_twenty_four_hourly`, `pm25_one_hourly` and `data.regionMetadata[].labelLocation`). The parser tolerates missing regions, a `national` key and missing metadata. CI runs `npm run test:live` as a non-blocking check that logs the real response keys.
 - The product name is set in `APP_NAME` in `lib/constants.ts`.
+
+## Also in this repo
+
+[`modelsheet/`](modelsheet/) is a separate Next.js app: an AI spreadsheet that builds company models from SEC filings. See its README.

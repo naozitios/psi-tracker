@@ -1,0 +1,29 @@
+name: modelsheet
+
+on:
+  push:
+    paths: ["modelsheet/**", ".github/workflows/modelsheet.yml"]
+  pull_request:
+    paths: ["modelsheet/**", ".github/workflows/modelsheet.yml"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modelsheet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: modelsheet/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # Unit and API tests. No network: SEC and the Claude API are faked,
+      # so CI never spends API credits.
+      - run: npm test
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
